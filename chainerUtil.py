@@ -7,24 +7,37 @@ import chainer.links as L
 
 
 class VLinear(Link):
-    def __init__(self,ln_sigmaW,ln_sigmaB,muW,muB):
+    def __init__(self,inSize,outSize,iMtx=False):
         super(VLinear,self).__init__(
-                ln_sigmaW=ln_sigmaW,
-                ln_sigmaB=ln_sigmaB,
-                muW=muW,
-                muB=muB
+                lnSigmaW = (inSize,outSize),
+                muW = (inSize,outSize),
+                lnSigmaB = (outSize),
+                muB = (outSize)
             )
+        self.lnSigmaW.data = np.ones((inSize,outSize),dtype='float32')
+        self.muW.data = np.ones((inSize,outSize),dtype='float32')
+        self.lnSigmaB.data = np.zeros(outSize,dtype='float32')
+        self.muB.data = np.zeros(outSize,dtype='float32')
+
 
     def __call__(self,x):
-        w = F.gaussian(self.muW,self.ln_sigmaW)
-        b = F.gaussian(self.muB,self.ln_sigmaB)
+        print(self.muW.data.shape)
+        print(self.lnSigmaW.data.shape)
+        w = F.gaussian(self.muW,self.lnSigmaW)
+        b = F.gaussian(self.muB,self.lnSigmaB)
         return F.linear(x,w,b)
 
-class VUniaryT(Link):
+class VUniaryT(Chain):
     def __init__(self,size):
         pass
-a = np.array([1],dtype='float32')
-b = np.array([0],dtype='float32')
-c = VLinear(a,a,b,b)
-x = c(a)
-x.backwards()
+
+class Branch(Funciton)
+    def __init__(control,f,g,x):
+        if (control < 0):
+            y = f(x)
+        else:
+            y = g(x)
+        controlFactor = control/(control^2 + 1)
+
+class Lookup
+    pass
