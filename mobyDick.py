@@ -9,11 +9,14 @@ import chainer.links as L
 
 
 class CharRNN(Chain):
-    def __init__(self,charInWidth,lstmSize):
+    def __init__(self,charInWidth,rnnSize):
         self.charInWidth = charInWidth,
         super(CharRNN,self).__init__(
-            embed = L.EmbedID(charInWidth,lstmSize),
-            lstm = L.LSTM(lstmSize,charInWidth)
+            embed = L.EmbedID(charInWidth,rnnSize),
+            rnn1 = L.LSTM(rnnSize,rnnSize),
+            rnn2 = L.LSTM(rnnSize,rnnSize),
+            rnn3 = L.LSTM(rnnSize,rnnSize),
+            l = L.Linear(rnnSize,charInWidth)
         )
     
     #x is an integer between 0 and charInWidth
@@ -25,8 +28,11 @@ class CharRNN(Chain):
     #returns unnormalized log probability distribution 
     #over possible next inputs
     def __call__(self,x):
-        iArray = self.embed(x)
-        oVec = self.lstm(iArray)
+        iVec = self.embed(x)
+        y1 = self.rnn1(iVec)
+        y2 = self.rnn2(y1)
+        y3 = self.rnn3(y2)
+        oVec = self.l(y3)
         return oVec
 
     def reset(self):
@@ -42,7 +48,7 @@ class EvalCRNN(Chain):
     #represents the data used to train the model. 
     #if retainState = false then the rnn is reset
     #before running
-    def __call__(self,data,retainState=False):
+    def __call__(self,data,retainState=True):
         if (retainState == False):
             self.cRNN.reset()
         
@@ -69,19 +75,50 @@ def testCRNN(maxIndex,indicies):
         print(p.grad)
 
 def optimizeCRNN(iterNum,maxIndex,indicies):
-    model = EvalCRNN(maxIndex,1000)
-    optimizer = optimizers.SGD()
-    optimizer.setup(model)
+    batchSize = 6000
+
+    model = EvalCRNN(maxIndex,500)
+    my_optimizer = optimizers.RMSprop(lr=0.01)
+    my_optimizer.setup(model)
     
-    print(model(indicies[0:100]).data)
+    print(len(indicies),computeEntropy(maxIndex,indicies))
+    loss = Variable(np.array([[0]]))
     for i in range(iterNum):
         model.zerograds()
-        loss = model(indicies[0:100])
+        loss.unchain_backward()
+        loss = model(indicies[batchSize*i:batchSize*(i+1)])
         loss.backward()
+        print(loss.data)
 
-        optimizer.update()
+        my_optimizer.update()
 
-        print(model(indicies[0:100]).data)
+    print(model(indicies[batchSize*(iterNum):batchSize*(iterNum+10)]).data/(batchSize*10))
+    return model.cRNN
+
+def sampleCRNN(cRNN,length,itoc,t=1):
+    maxIndex = cRNN.charInWidth[0]
+    indexList = np.array([x for x in range(maxIndex)],dtype='int32')
+    nextChar = np.zeros(1,dtype='int32')
+    nextChar[0] = np.random.choice(indexList.flatten())
+    charList = []
+    for i in range(length):
+        logDistribution = cRNN(Variable(nextChar)).data
+        distribution = np.exp(logDistribution/t) / np.sum(np.exp(logDistribution/t))
+        nextChar[0] = np.random.choice(indexList,p=distribution.flatten())
+        charList.append(nextChar[0])
+
+    out = "".join(map((lambda x: itoc[x]),charList))
+    return out
+
+def computeEntropy(maxIndex,indicies):
+    total = len(indicies)
+    counts = np.zeros(maxIndex,dtype='int32')
+    for i in indicies:
+        counts[i] += 1
+    probabilites = np.array(counts,dtype='float64')/total
+    entropies = -probabilites * np.log(probabilites)
+    return np.sum(entropies)
+    
 
 #Accepts a text file Address as input
 #
@@ -104,14 +141,15 @@ def fileToIndicies(fileAddress):
 
     indicies = [x for x in map(f,data)]
 
-    return (maxIndex,indicies)
+    return (maxIndex,indicies,itoc)
 
 
 ############################################################
 
-(a,b) = fileToIndicies('data/mobyDick.txt')
+(a,b,itoc) = fileToIndicies('data/mobyDick.txt')
 #testCRNN(a,np.array(b,dtype='int32'))
-optimizeCRNN(100,a,np.array(b,dtype='int32'))
+cRNN = optimizeCRNN(100,a,np.array(b,dtype='int32'))
+print(sampleCRNN(cRNN,5000,itoc))
 
 
 
