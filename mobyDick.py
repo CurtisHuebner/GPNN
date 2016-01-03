@@ -2,10 +2,13 @@ import itertools
 
 import numpy as np
 import chainer
-from chainer import cuda, Function, gradient_check, Variable, optimizers, serializers, utils
+from chainer import cuda, Function, gradient_check, Variable, optimizers, serializers, utils, optimizer
 from chainer import Link, Chain, ChainList
 import chainer.functions as F
 import chainer.links as L
+import myLSTM as M
+
+import time
 
 
 class CharRNN(Chain):
@@ -15,7 +18,6 @@ class CharRNN(Chain):
             embed = L.EmbedID(charInWidth,rnnSize),
             rnn1 = L.LSTM(rnnSize,rnnSize),
             rnn2 = L.LSTM(rnnSize,rnnSize),
-            rnn3 = L.LSTM(rnnSize,rnnSize),
             l = L.Linear(rnnSize,charInWidth)
         )
     
@@ -31,12 +33,12 @@ class CharRNN(Chain):
         iVec = self.embed(x)
         y1 = self.rnn1(iVec)
         y2 = self.rnn2(y1)
-        y3 = self.rnn3(y2)
-        oVec = self.l(y3)
+        oVec = self.l(y2)
         return oVec
 
     def reset(self):
-        self.lstm.reset_state()
+        self.rnn1.reset_state()
+        self.rnn2.reset_state()
 
 class EvalCRNN(Chain):
     def __init__(self,charInWidth,lstmSize):
@@ -75,22 +77,36 @@ def testCRNN(maxIndex,indicies):
         print(p.grad)
 
 def optimizeCRNN(iterNum,maxIndex,indicies):
-    batchSize = 6000
-
+    batchSize = 1000
     model = EvalCRNN(maxIndex,500)
-    my_optimizer = optimizers.RMSprop(lr=0.01)
-    my_optimizer.setup(model)
-    
     print(len(indicies),computeEntropy(maxIndex,indicies))
-    loss = Variable(np.array([[0]]))
-    for i in range(iterNum):
-        model.zerograds()
-        loss.unchain_backward()
-        loss = model(indicies[batchSize*i:batchSize*(i+1)])
-        loss.backward()
-        print(loss.data)
+    learningRate = 0.001
+    epoch = 3 
+    for j in range(epoch):
+        
+        my_optimizer = optimizers.RMSpropGraves(lr = learningRate)
+        my_optimizer.setup(model) 
+        my_optimizer.add_hook(optimizer.GradientClipping(1))
+        
+        model.cRNN.reset()
+        
+        loss = Variable(np.array([[0]]))
+        for i in range(iterNum):
+            t1 = time.clock()
+            model.zerograds()
+            loss.unchain_backward()
+            loss = model(indicies[batchSize*i:batchSize*(i+1)])
+            loss.backward()
+            t2 = time.clock()
+            
+            msg = "iter: " + str(i + iterNum * j + 1) + "/" + str(iterNum * epoch) 
+            msgLoss = "loss: " + str(loss.data/batchSize)
+            msgNorm = "grad: " + str(my_optimizer.compute_grads_norm())
+            msgTime = "time: " + str(t2 - t1) + " seconds"
+            print(msgLoss,msgNorm,msg,msgTime)
+            my_optimizer.update()
 
-        my_optimizer.update()
+        learningRate *= 0.50
 
     print(model(indicies[batchSize*(iterNum):batchSize*(iterNum+10)]).data/(batchSize*10))
     return model.cRNN
@@ -148,7 +164,7 @@ def fileToIndicies(fileAddress):
 
 (a,b,itoc) = fileToIndicies('data/mobyDick.txt')
 #testCRNN(a,np.array(b,dtype='int32'))
-cRNN = optimizeCRNN(100,a,np.array(b,dtype='int32'))
+cRNN = optimizeCRNN(1000,a,np.array(b,dtype='int32'))
 print(sampleCRNN(cRNN,5000,itoc))
 
 

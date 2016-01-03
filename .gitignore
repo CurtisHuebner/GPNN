@@ -62,6 +62,7 @@ data/
 #MacVim
 *.swp
 *.swo
+*.swn
 
 Pretty_Pictures/
 models/
