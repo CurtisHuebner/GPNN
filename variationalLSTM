@@ -5,7 +5,7 @@ from chainer import variable
 import numpy as np
 
 
-class LSTM(link.Chain):
+class VLSTM(link.Chain):
 
     """Fully-connected LSTM layer.
 
