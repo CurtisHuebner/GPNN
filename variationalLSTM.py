@@ -3,6 +3,8 @@ from chainer import link
 from chainer.links.connection import linear
 from chainer import variable
 import numpy as np
+import chainerUtil as C
+import math as math
 
 
 class VLSTM(link.Chain):
@@ -28,11 +30,14 @@ class VLSTM(link.Chain):
         h (chainer.Variable): Output at the previous timestep.
 
     """
-    def __init__(self, in_size, out_size):
-        w = np.zeros((4 * out_size,in_size))
-        super(LSTM, self).__init__(
-            upward=linear.Linear(in_size, 4 * out_size,initialW=w),
-            lateral=linear.Linear(out_size, 4 * out_size, nobias=True,initialW=w),
+    def __init__(self, in_size, out_size,prior=None,parameterNumber=500000,norm=50):
+        x = math.log(norm / math.sqrt(parameterNumber))
+        w = np.zeros((4 * out_size,in_size),dtype='float32')+x,np.zeros((4 * out_size,in_size),dtype='float32')
+        b = np.zeros(out_size,dtype='float32')+x,np.zeros(out_size,dtype='float32')
+        self.prior = C.VLinear(in_size, 4 * out_size,initialW=w)
+        super(VLSTM, self).__init__(
+            upward=C.VLinear(in_size, 4 * out_size),
+            lateral=C.VLinear(out_size, 4 * out_size, nobias=True),
         )
         self.state_size = out_size
         self.reset_state()
@@ -45,7 +50,7 @@ class VLSTM(link.Chain):
         """
         self.c = self.h = None
 
-    def __call__(self, x):
+    def __call__(self,x,seed):
         """Updates the internal state and returns the LSTM outputs.
 
         Args:
@@ -55,9 +60,9 @@ class VLSTM(link.Chain):
             ~chainer.Variable: Outputs of updated LSTM units.
 
         """
-        lstm_in = self.upward(x)
+        lstm_in = self.upward(x,seed)
         if self.h is not None:
-            lstm_in += self.lateral(self.h)
+            lstm_in += self.lateral(self.h,seed)
         if self.c is None:
             xp = self.xp
             self.c = variable.Variable(
@@ -66,3 +71,8 @@ class VLSTM(link.Chain):
         self.c, self.h = lstm.lstm(self.c, lstm_in)
         return self.h
 
+    def getDivergence(self):
+        d = 0
+        d += self.upward.getDivergence(self.prior)
+        d += self.lateral.getDivergence(self.prior)
+        return d

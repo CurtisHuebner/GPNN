@@ -6,7 +6,8 @@ from chainer import cuda, Function, gradient_check, Variable, optimizers, serial
 from chainer import Link, Chain, ChainList
 import chainer.functions as F
 import chainer.links as L
-import myLSTM as M
+import variationalLSTM as M
+import chainerUtil as V
 
 import time
 
@@ -29,16 +30,23 @@ class CharRNN(Chain):
     #
     #returns unnormalized log probability distribution 
     #over possible next inputs
-    def __call__(self,x):
+    def __call__(self,x,seed):
         iVec = self.embed(x)
-        y1 = self.rnn1(iVec)
-        y2 = self.rnn2(y1)
-        oVec = self.l(y2)
+        y1 = self.rnn1(iVec)#,seed)
+        y2 = self.rnn2(y1)#,seed)
+        oVec = self.l(y2)#,seed)
         return oVec
 
     def reset(self):
         self.rnn1.reset_state()
         self.rnn2.reset_state()
+
+    def getDivergence(self):
+        d = 0
+        d += self.rnn1.getDivergence()
+        d += self.rnn2.getDivergence()
+        return d
+        
 
 class EvalCRNN(Chain):
     def __init__(self,charInWidth,lstmSize):
@@ -50,20 +58,21 @@ class EvalCRNN(Chain):
     #represents the data used to train the model. 
     #if retainState = false then the rnn is reset
     #before running
-    def __call__(self,data,retainState=True):
+    def __call__(self,data,totalDataSize,retainState=True):
         if (retainState == False):
             self.cRNN.reset()
         
         #compute loss
-        loss = 0 
+        loss = 0
+        seed = np.random.rand()
         for i in range(data.shape[0]-1):
             inVal = Variable(data[i,np.newaxis])
-            outVal = self.cRNN(inVal)
+            outVal = self.cRNN(inVal,seed)
             target = Variable(data[i+1,np.newaxis])
             #accumulate loss
-            val = F.softmax_cross_entropy(outVal,target)
-            loss += val
-
+            loss += F.softmax_cross_entropy(outVal,target)
+        #val =  self.cRNN.getDivergence()
+        #loss += val*(len(data)/totalDataSize) 
         return loss
 
 def testCRNN(maxIndex,indicies):
@@ -95,7 +104,7 @@ def optimizeCRNN(iterNum,maxIndex,indicies):
             t1 = time.clock()
             model.zerograds()
             loss.unchain_backward()
-            loss = model(indicies[batchSize*i:batchSize*(i+1)])
+            loss = model(indicies[batchSize*i:batchSize*(i+1)],iterNum*batchSize)
             loss.backward()
             t2 = time.clock()
             
@@ -142,7 +151,7 @@ def computeEntropy(maxIndex,indicies):
 #and indices is a list of numbers between [0,maxIndex)
 def fileToIndicies(fileAddress):
     #Open and load data into memory as a string
-    f = open('data/mobyDick.txt', 'r')
+    f = open(fileAddress, 'r')
     data = f.read()
     
     #Convert string into indicies 
